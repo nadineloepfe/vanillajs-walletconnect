@@ -1,7 +1,8 @@
 import {
-  AccountId,
-  TokenAssociateTransaction,
-  TokenId,
+  PrivateKey,
+  Client,
+  TokenUpdateNftsTransaction,
+  TransactionId
 } from "@hashgraph/sdk";
 import {
   DAppConnector,
@@ -23,6 +24,8 @@ const NETWORK_CONFIG = {
     chainId: "0x128",
   },
 };
+
+const hederaClient = Client.forName("testnet");
 
 const walletConnectProjectId = "377d75bb6f86a2ffd427d032ff6ea7d3";
 const currentNetworkConfig = NETWORK_CONFIG.testnet;
@@ -53,17 +56,33 @@ const initializeWalletConnect = async () => {
   await walletConnectInitPromise;
 };
 
-// Sync WalletConnect state
+// Sync WalletConnect state and save to localStorage
 function syncWalletconnectState() {
   const account = dappConnector.signers[0]?.getAccountId()?.toString();
   if (account) {
     accountId = account;
     isConnected = true;
+    localStorage.setItem('accountId', accountId);
+    localStorage.setItem('isConnected', 'true');
     updateAccountIdDisplay(accountId);
   } else {
     accountId = '';
     isConnected = false;
+    localStorage.removeItem('accountId');
+    localStorage.removeItem('isConnected');
     updateAccountIdDisplay("No account connected");
+  }
+}
+
+// Restore state from localStorage on page load
+const restoreSessionFromStorage = () => {
+  const storedAccountId = localStorage.getItem('accountId');
+  const storedIsConnected = localStorage.getItem('isConnected');
+
+  if (storedAccountId && storedIsConnected === 'true') {
+    accountId = storedAccountId;
+    isConnected = true;
+    updateAccountIdDisplay(accountId);
   }
 }
 
@@ -83,12 +102,15 @@ const openWalletConnectModal = async () => {
   }
 };
 
-// Disconnect Wallet
+// Disconnect Wallet and clear localStorage
 const disconnectWallet = async () => {
   if (isConnected) {
     try {
       await dappConnector.disconnectAll();
       isConnected = false;
+      accountId = '';
+      localStorage.removeItem('accountId');
+      localStorage.removeItem('isConnected');
       syncWalletconnectState();
       console.log('Disconnected from wallet');
     } catch (error) {
@@ -127,40 +149,46 @@ const clearSessionOnLoad = () => {
   }
 }
 
-// **Token association**: Define the function before attaching the event listener
-async function handleTokenAssociation() {
-  const tokenId = document.getElementById('associateTokenId').value;
-  if (!tokenId) {
-    console.error('Token ID is required.');
+async function handleMetadataUpdate() {
+  const tokenId = document.getElementById('updateTokenMetadata').value;
+  const serialNumber = document.getElementById('serialNumber').value;
+  const newMetadata = document.getElementById('newMetadata').value;
+  const metadataKeyString = document.getElementById('metadataKey').value;
+
+  if (!tokenId || !serialNumber || !newMetadata || !metadataKeyString) {
+    console.error('All fields are required.');
     return;
   }
 
+  const metadataKey = PrivateKey.fromString(metadataKeyString);
+  const signer = dappConnector.signers[0];
+  const newMetadataUri = new TextEncoder().encode(newMetadata)
+
   try {
-    const associateTokenTransaction = new TokenAssociateTransaction()
-      .setAccountId(AccountId.fromString(accountId))
-      .setTokenIds([TokenId.fromString(tokenId)]);
+    const updateTransaction = new TokenUpdateNftsTransaction()
+      .setTokenId(tokenId) 
+      .setSerialNumbers([serialNumber]) 
+      .setMetadata(new TextEncoder().encode(newMetadataUri)) 
 
-    const signer = dappConnector.signers[0];
-
-    // Freeze and execute with the signer
-    await associateTokenTransaction.freezeWithSigner(signer);
-    const txResult = await associateTokenTransaction.executeWithSigner(signer);
-    console.log(`Token ${tokenId} associated successfully.`);
+    await updateTransaction.freezeWithSigner(signer);
+    const signedUpdateTx = await updateTransaction.sign(metadataKey);
+    const txResult = await signedUpdateTx.executeWithSigner(signer);
+    console.log(`Metadata for Token ${tokenId} updated successfully.`);
   } catch (error) {
-    console.error(`Failed to associate token: ${error.message}`);
+    console.error(`Failed to update metadata: ${error.message}`);
   }
 }
 
-// **Ensure the DOM is fully loaded before attaching event listeners**
+// Ensure the DOM is fully loaded before attaching event listeners
 document.addEventListener('DOMContentLoaded', async () => {
   await initializeWalletConnect();
 
-  // Clear session on load
-  clearSessionOnLoad();
+  // Restore session from localStorage
+  restoreSessionFromStorage();
 
   // Ensure the buttons exist before adding event listeners
   const disconnectButton = document.getElementById('disconnectButton');
-  const associateButton = document.getElementById('associateButton');
+  const updateButton = document.getElementById('updateButton');
 
   if (disconnectButton) {
     disconnectButton.addEventListener('click', () => {
@@ -172,8 +200,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Attach the token association event listener
-  if (associateButton) {
-    associateButton.addEventListener('click', handleTokenAssociation);
+  // Attach the token metadata update event listener
+  if (updateButton) {
+    updateButton.addEventListener('click', handleMetadataUpdate);
   }
 });
