@@ -1,7 +1,11 @@
 import {
   PrivateKey,
-  Client,
   TokenUpdateNftsTransaction,
+  Client,
+  TokenCreateTransaction,
+  TokenMintTransaction,
+  TokenType,
+  TransactionId
 } from "@hashgraph/sdk";
 import {
   DAppConnector,
@@ -13,6 +17,8 @@ import {
 // Global state for wallet connection
 let accountId = '';
 let isConnected = false;
+
+const hederaClient = Client.forName("testnet");
 
 // Network configuration
 const NETWORK_CONFIG = {
@@ -146,18 +152,49 @@ const clearSessionOnLoad = () => {
   }
 }
 
-async function handleMetadataUpdate() {
-  const tokenId = document.getElementById('updateTokenMetadata').value;
-  const serialNumber = document.getElementById('serialNumber').value;
-  const newMetadata = document.getElementById('newMetadata').value;
-  const metadataKeyString = document.getElementById('metadataKey').value;
+  async function createNft() {
+    const supplyKey = PrivateKey.generate(); 
+    const metadataKey = PrivateKey.generate(); 
+    const signer = dappConnector.signers[0];
+    const tokenCreateTx = new TokenCreateTransaction()
+      .setTokenName("TestToken")
+      .setTokenSymbol("TEST")
+      .setTokenType(TokenType.NonFungibleUnique)
+      .setTreasuryAccountId(accountId)
+      .setAutoRenewAccountId(accountId)
+      .setAutoRenewPeriod(7776000)
+      .setSupplyKey(supplyKey.publicKey)
+      .setMetadataKey(metadataKey.publicKey)
+      .setTransactionId(TransactionId.generate(accountId));
 
-  if (!tokenId || !serialNumber || !newMetadata || !metadataKeyString) {
-    console.error('All fields are required.');
-    return;
+      const txResult = await tokenCreateTx.executeWithSigner(signer);
+      const nftCreateRx = await txResult.getReceipt(hederaClient);
+      const tokenId = nftCreateRx.tokenId;
+      console.log("NFT created! Token Id" + tokenId)
+      console.log("MetadataKey:" + metadataKey)
+      return { tokenId, metadataKey, supplyKey };
   }
 
-  const metadataKey = PrivateKey.fromString(metadataKeyString);
+  async function mintNft(tokenId, supplyKey) {
+    const signer = dappConnector.signers[0];
+    const metadataBytes = new TextEncoder().encode("QmbokN1onYuUHCUagbUApmd3zsw2xgN1yoJ8ouHnb1qApu");
+    const tokenMintTx = await new TokenMintTransaction()
+      .setTokenId(tokenId)
+      .addMetadata(metadataBytes) 
+
+    await tokenMintTx.freezeWithSigner(signer);
+    console.log("Signing NFT with MetadataKey....")
+    const signedTokenMintTx = await tokenMintTx.sign(supplyKey);
+    console.log("NFT signed!")
+
+    const txResult = await signedTokenMintTx.executeWithSigner(signer);
+    const nftMintRx = await txResult.getReceipt(hederaClient);
+    const supply = nftMintRx.totalSupply;
+    console.log(`NFT minted with TokenId: ${tokenId}. New total supply is ${supply}`);
+    return txResult ? txResult.transactionId : null;
+  }
+
+async function metadataUpdate(tokenId, serialNumber, newMetadata, metadataKey) {
   const signer = dappConnector.signers[0];
   const newMetadataUri = new TextEncoder().encode(newMetadata)
 
@@ -173,6 +210,28 @@ async function handleMetadataUpdate() {
     console.log(`Metadata for Token ${tokenId} updated successfully.`);
   } catch (error) {
     console.error(`Failed to update metadata: ${error.message}`);
+  }
+}
+
+async function handleRunTest() {
+  try {
+    const newMetadata = document.getElementById('newMetadata').value;
+
+    // Create the NFT and get tokenId and metadataKey
+    console.log("Creating NFT...");
+    const { tokenId, metadataKey, supplyKey } = await createNft();
+
+    // Mint the NFT using the tokenId from the create step
+    console.log("Minting NFT...");
+    const serialNumber = await mintNft(tokenId, supplyKey);
+
+    // Update the metadata after minting the NFT
+    console.log("Updating metadata...");
+    await metadataUpdate(tokenId, serialNumber, newMetadata, metadataKey);
+
+    console.log("NFT creation, minting, and metadata update completed successfully.");
+  } catch (error) {
+    console.error("Error during the NFT creation and update process:", error);
   }
 }
 
@@ -199,6 +258,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Attach the token metadata update event listener
   if (updateButton) {
-    updateButton.addEventListener('click', handleMetadataUpdate);
+    updateButton.addEventListener('click', handleRunTest);
   }
 });
