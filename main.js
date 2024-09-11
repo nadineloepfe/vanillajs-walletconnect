@@ -2,7 +2,6 @@ import {
   PrivateKey,
   Client,
   TokenUpdateNftsTransaction,
-  TransactionId
 } from "@hashgraph/sdk";
 import {
   DAppConnector,
@@ -24,8 +23,6 @@ const NETWORK_CONFIG = {
     chainId: "0x128",
   },
 };
-
-const hederaClient = Client.forName("testnet");
 
 const walletConnectProjectId = "377d75bb6f86a2ffd427d032ff6ea7d3";
 const currentNetworkConfig = NETWORK_CONFIG.testnet;
